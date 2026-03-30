@@ -22,9 +22,9 @@ if uploaded_file is not None:
                         # Clean out None and filter for rows with actual data
                         clean_row = [str(item).strip() if item is not None else "" for item in row]
                         
-                        # Use a more robust check: row must have a date and a description
+                        # Identify transaction rows by date pattern (e.g., 01/02/2026)
                         if clean_row and len(clean_row) >= 2:
-                            # HDFC dates in your file are often 'DD/MM/YYYY'
+                            # Look for the date at the start of the row [cite: 95, 116]
                             if "/" in clean_row[0] and any(char.isdigit() for char in clean_row[0]):
                                 # Ensure we only take the first 3 relevant columns
                                 all_rows.append(clean_row[:3])
@@ -33,9 +33,10 @@ if uploaded_file is not None:
             # Safely create DataFrame
             df = pd.DataFrame(all_rows, columns=["Date & Time", "Description", "Amount"])
             
-            # Final Clean-up for a professional Excel sheet
+            # Final Clean-up
+            # FIX: Added .str before .strip() to avoid AttributeError
             df["Description"] = df["Description"].str.replace('\n', ' ')
-            df["Amount"] = df["Amount"].str.replace('₹', '').str.replace(',', '').str.replace('+', '').strip()
+            df["Amount"] = df["Amount"].str.replace('₹', '').str.replace(',', '').str.replace('+', '').str.strip()
             
             st.success(f"Successfully extracted {len(df)} transactions.")
             st.dataframe(df, use_container_width=True)
@@ -52,4 +53,4 @@ if uploaded_file is not None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.warning("No transactions found. Check if the PDF is encrypted or uses a different layout.")
+            st.warning("No transactions found. Check if the PDF is the standard HDFC layout.")
