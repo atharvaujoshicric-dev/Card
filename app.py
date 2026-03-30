@@ -6,12 +6,12 @@ from io import BytesIO
 st.set_page_config(page_title="HDFC Statement Extractor", layout="wide")
 
 st.title("💳 Domestic Transactions to Excel")
-st.write("Extracting domestic transactions for billing period: **02 Feb, 2026 - 01 Mar, 2026**.")
+st.write("Extracting transactions from your HDFC statement.")
 
 uploaded_file = st.file_uploader("Choose your PDF file", type="pdf")
 
 if uploaded_file is not None:
-    with st.spinner('Parsing 16 pages of transactions...'):
+    with st.spinner('Parsing 16 pages...'):
         all_rows = []
         
         with pdfplumber.open(uploaded_file) as pdf:
@@ -19,31 +19,28 @@ if uploaded_file is not None:
                 table = page.extract_table()
                 if table:
                     for row in table:
-                        # Clean out None values from the row list
+                        # Clean out None and filter for rows with actual data
                         clean_row = [str(item).strip() if item is not None else "" for item in row]
                         
-                        # Identify transaction rows by date pattern (e.g., 01/02/2026)
-                        if clean_row and any(char.isdigit() for char in clean_row[0]):
-                            if "/" in clean_row[0] and "DATE" not in clean_row[0].upper():
-                                # We only want the Date, Description, and Amount
-                                # HDFC usually has these in indices 0, 1, and 2
+                        # Use a more robust check: row must have a date and a description
+                        if clean_row and len(clean_row) >= 2:
+                            # HDFC dates in your file are often 'DD/MM/YYYY'
+                            if "/" in clean_row[0] and any(char.isdigit() for char in clean_row[0]):
+                                # Ensure we only take the first 3 relevant columns
                                 all_rows.append(clean_row[:3])
 
-        if all_rows:
-            # Create DataFrame with flexible column handling
+        if len(all_rows) > 0:
+            # Safely create DataFrame
             df = pd.DataFrame(all_rows, columns=["Date & Time", "Description", "Amount"])
             
-            # Data Cleaning for Excel usability
-            # 1. Remove currency symbols and commas from Amount 
-            df["Amount"] = df["Amount"].str.replace('₹', '').str.replace(',', '').str.replace('+', '')
-            
-            # 2. Clean up multi-line Meta/Facebook descriptions [cite: 116, 132]
+            # Final Clean-up for a professional Excel sheet
             df["Description"] = df["Description"].str.replace('\n', ' ')
-
-            st.success(f"Extracted {len(df)} transactions.")
+            df["Amount"] = df["Amount"].str.replace('₹', '').str.replace(',', '').str.replace('+', '').strip()
+            
+            st.success(f"Successfully extracted {len(df)} transactions.")
             st.dataframe(df, use_container_width=True)
 
-            # Generate Excel
+            # Excel Export
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name='Domestic_Transactions')
@@ -51,8 +48,8 @@ if uploaded_file is not None:
             st.download_button(
                 label="📥 Download Excel File",
                 data=output.getvalue(),
-                file_name="HDFC_Domestic_Feb26.xlsx",
+                file_name="HDFC_Domestic_Transactions.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.error("No transactions detected. Verify the PDF is a standard HDFC Credit Card statement.")
+            st.warning("No transactions found. Check if the PDF is encrypted or uses a different layout.")
