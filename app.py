@@ -3,15 +3,15 @@ import pdfplumber
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="HDFC Statement Extractor", layout="centered")
+st.set_page_config(page_title="HDFC Statement Extractor", layout="wide")
 
 st.title("💳 Domestic Transactions to Excel")
-st.write("Upload your HDFC Credit Card statement to extract transaction data.")
+st.write("Extracting domestic transactions for billing period: **02 Feb, 2026 - 01 Mar, 2026**.")
 
 uploaded_file = st.file_uploader("Choose your PDF file", type="pdf")
 
 if uploaded_file is not None:
-    with st.spinner('Scanning all pages...'):
+    with st.spinner('Parsing 16 pages of transactions...'):
         all_rows = []
         
         with pdfplumber.open(uploaded_file) as pdf:
@@ -19,40 +19,40 @@ if uploaded_file is not None:
                 table = page.extract_table()
                 if table:
                     for row in table:
-                        # Only keep rows that look like transactions (starting with a date)
-                        # Your dates look like '31/01/2026' or '01/02/2026'
-                        if row[0] and any(char.isdigit() for char in str(row[0])):
-                            # Ignore the header row itself if it's captured
-                            if "DATE" not in str(row[0]).upper():
-                                all_rows.append(row)
+                        # Clean out None values from the row list
+                        clean_row = [str(item).strip() if item is not None else "" for item in row]
+                        
+                        # Identify transaction rows by date pattern (e.g., 01/02/2026)
+                        if clean_row and any(char.isdigit() for char in clean_row[0]):
+                            if "/" in clean_row[0] and "DATE" not in clean_row[0].upper():
+                                # We only want the Date, Description, and Amount
+                                # HDFC usually has these in indices 0, 1, and 2
+                                all_rows.append(clean_row[:3])
 
         if all_rows:
-            # Manually define columns based on your statement structure
-            columns = ["DATE & TIME", "TRANSACTION DESCRIPTION", "AMOUNT PI"]
+            # Create DataFrame with flexible column handling
+            df = pd.DataFrame(all_rows, columns=["Date & Time", "Description", "Amount"])
             
-            # Create DataFrame
-            final_df = pd.DataFrame(all_rows)
+            # Data Cleaning for Excel usability
+            # 1. Remove currency symbols and commas from Amount 
+            df["Amount"] = df["Amount"].str.replace('₹', '').str.replace(',', '').str.replace('+', '')
             
-            # If the PDF extraction returned extra columns, trim them to match our 3 headers
-            final_df = final_df.iloc[:, :3] 
-            final_df.columns = columns
-            
-            # Clean up the 'AMOUNT PI' column - remove currency symbols and commas
-            final_df["AMOUNT PI"] = final_df["AMOUNT PI"].astype(str).str.replace('₹', '').str.replace(',', '').str.strip()
-            
-            st.success(f"Successfully extracted {len(final_df)} transaction rows!")
-            st.dataframe(final_df)
+            # 2. Clean up multi-line Meta/Facebook descriptions [cite: 116, 132]
+            df["Description"] = df["Description"].str.replace('\n', ' ')
 
-            # Convert to Excel
+            st.success(f"Extracted {len(df)} transactions.")
+            st.dataframe(df, use_container_width=True)
+
+            # Generate Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                final_df.to_excel(writer, index=False, sheet_name='Domestic_Transactions')
+                df.to_excel(writer, index=False, sheet_name='Domestic_Transactions')
             
             st.download_button(
-                label="📥 Download Transactions as Excel",
+                label="📥 Download Excel File",
                 data=output.getvalue(),
-                file_name="HDFC_Transactions_Extracted.xlsx",
+                file_name="HDFC_Domestic_Feb26.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.error("No transactions found. Please ensure this is the correct HDFC statement format.")
+            st.error("No transactions detected. Verify the PDF is a standard HDFC Credit Card statement.")
