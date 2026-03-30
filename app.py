@@ -4,64 +4,63 @@ import pandas as pd
 from io import BytesIO
 import re
 
-st.set_page_config(page_title="HDFC Statement Converter", layout="wide")
+st.set_page_config(page_title="HDFC Statement Pro", layout="wide")
 
-st.title("💳 Transaction Extractor (Date & Time Split)")
-st.write("Extracting Domestic Transactions from HDFC 'Card Feb-26.pdf'.")
+st.title("💳 Universal HDFC Transaction Extractor")
+st.write("Extracting Domestic & International transactions with Date/Time splitting.")
 
-uploaded_file = st.file_uploader("Upload Statement PDF", type="pdf")
+uploaded_file = st.file_uploader("Upload your 'Card Feb-26.pdf'", type="pdf")
 
 if uploaded_file is not None:
-    with st.spinner('Processing 16 pages...'):
+    with st.spinner('Deep-scanning all pages...'):
         all_data = []
         
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                table = page.extract_table()
-                if table:
-                    for row in table:
-                        # Clean cells and remove None values
-                        clean_row = [str(item).strip() if item is not None else "" for item in row]
+                # Extracting raw text instead of tables to bypass border issues
+                text = page.extract_text()
+                if not text:
+                    continue
+                
+                # Split text into individual lines
+                lines = text.split('\n')
+                
+                for line in lines:
+                    # Specific Regex for: Date (dd/mm/yyyy) + optional pipe | + Time (hh:mm)
+                    # This matches "02/02/2026| 18:59" or "02/02/2026 18:59"
+                    match = re.search(r'(\d{2}/\d{2}/\d{4})\s*[|]*\s*(\d{2}:\d{2})\s+(.*?)\s+([₹\d,+-]+\.\d{2})', line)
+                    
+                    if match:
+                        date = match.group(1)
+                        time = match.group(2)
+                        description = match.group(3).strip()
+                        amount = match.group(4)
                         
-                        if clean_row and len(clean_row) >= 3:
-                            raw_date_time = clean_row[0]
-                            
-                            # Regex to find "dd/mm/yyyy| hh:mm" or "dd/mm/yyyy hh:mm"
-                            # Handles cases with and without the "|" pipe symbol
-                            match = re.search(r'(\d{2}/\d{2}/\d{4})[|\s]*(\d{2}:\d{2})', raw_date_time)
-                            
-                            if match:
-                                date = match.group(1)
-                                time = match.group(2)
-                                description = clean_row[1].replace('\n', ' ')
-                                amount = clean_row[2]
-                                
-                                all_data.append([date, time, description, amount])
+                        all_data.append([date, time, description, amount])
 
         if all_data:
-            # Define 4 columns now that Time is separate
             df = pd.DataFrame(all_data, columns=["Date", "Time", "Description", "Amount"])
             
-            # Clean Amount column for numerical use in Excel
+            # Clean Amount: Remove currency symbols and formatting for Excel math
             df["Amount"] = (df["Amount"]
                             .str.replace('₹', '', regex=False)
                             .str.replace(',', '', regex=False)
                             .str.replace('+', '', regex=False)
                             .str.strip())
             
-            st.success(f"Extracted {len(df)} transactions with separate Time column.")
+            st.success(f"Successfully extracted {len(df)} transactions!")
             st.dataframe(df, use_container_width=True)
 
-            # Excel Conversion
+            # Export to Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Domestic_Transactions')
+                df.to_excel(writer, index=False, sheet_name='All_Transactions')
             
             st.download_button(
-                label="📥 Download Excel",
+                label="📥 Download Transactions Excel",
                 data=output.getvalue(),
-                file_name="HDFC_Transactions_Split.xlsx",
+                file_name="HDFC_Extracted_Transactions.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.error("No transactions found. Ensure the layout matches the standard HDFC digital statement.")
+            st.error("Still no transactions found. Please verify if the PDF text is selectable (not a scanned image).")
